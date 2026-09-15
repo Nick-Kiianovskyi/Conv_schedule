@@ -46,7 +46,7 @@ These files can be imported into Google Calendar, Outlook, or any other calendar
 ![Upload](screenshots/upload.png)
 
 ### Generated Calendar File
-![Result](screenshots/result.png)
+![Result](screenshots/rezult.png)
 
 ---
 
