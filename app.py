@@ -1,96 +1,96 @@
 # -*- coding: utf-8 -*-
-# ============================================================================
-# app.py — графічний інтерфейс (GUI) конвертера розкладу.
-# ----------------------------------------------------------------------------
-# Дозволяє користувачу обрати Excel-файл через діалогове вікно, конвертувати
-# його у формат .ics (для імпорту в Google Calendar) і побачити повідомлення
-# про кількість імпортованих подій.
-#
-# Уся основна логіка конвертації винесена в модуль `excel_to_ics.py`
-# (функції extract_events та save_ics), а тут лише GUI-обгортка навколо них.
-# ============================================================================
+# web_app.py — Веб-інтерфейс конвертера розкладу (Flask)
+# Дозволяє завантажити Excel-файл, конвертувати у .ics та завантажити результат.
 
-import tkinter as tk                     # основний модуль для GUI на Tk
-from tkinter import filedialog, messagebox   # діалоги вибору файлів та повідомлення
-from pathlib import Path                  # для роботи зі шляхами (ім'я вивідного файлу)
-
-# Перевикористовуємо логіку з CLI-версії, щоб не дублювати код.
+import io
+from flask import Flask, request, render_template, send_file, flash, redirect, url_for
+import openpyxl
 from excel_to_ics import extract_events, save_ics
-import openpyxl                           # для читання Excel-файлів
+
+app = Flask(__name__)
+app.secret_key = "schedule-converter-secret-key"
 
 
-def convert_excel_to_ics(file_path):
-    """
-    Конвертує Excel-файл у .ics і повертає шлях до результату та кількість подій.
-
-    Аргументи:
-        file_path: шлях до вхідного Excel-файлу (.xlsx / .xls).
-
-    Повертає:
-        Кортеж (output_file, count), де output_file — шлях до створеного .ics,
-        а count — кількість імпортованих подій.
-    """
-    # Відкриваємо книгу Excel і беремо активний (перший) аркуш.
-    wb = openpyxl.load_workbook(file_path)
-    ws = wb.active
-
-    # Витягуємо всі події (заняття) з розкладу.
-    events = extract_events(ws)
-
-    # Ім'я вихідного файлу = ім'я вхідного, але з розширенням .ics (напр. 11.xlsx -> 11.ics).
-    output_file = Path(file_path).stem + ".ics"
-
-    # Записуємо події у формат iCalendar.
-    save_ics(events, output_file)
-
-    # Повертаємо шлях до файлу та кількість подій.
-    return output_file, len(events)
+@app.route("/", methods=["GET"])
+def index():
+    return render_template("index.html")
 
 
-def upload_file():
-    """
-    Обробник кнопки "Завантажити Excel".
+@app.route("/convert", methods=["POST"])
+def convert():
+    if "file" not in request.files:
+        flash("Файл не обрано", "error")
+        return redirect(url_for("index"))
 
-    Показує діалог вибору файлу, конвертує обраний файл і сповіщає користувача
-    про результат (шлях до файлу + кількість подій) або про помилку.
-    """
-    # Показуємо стандартне діалогове вікно вибору файлу.
-    # Дозволені типи файлів: *.xlsx і *.xls.
-    file_path = filedialog.askopenfilename(
-        title="Оберіть Excel файл",
-        filetypes=[("Excel files", "*.xlsx *.xls")]
-    )
+    file = request.files["file"]
 
-    if file_path:                        # якщо файл обрано
-        try:
-            # Виконуємо конвертацію: отримуємо шлях до результату та кількість подій.
-            output, count = convert_excel_to_ics(file_path)
+    if file.filename == "":
+        flash("Файл не обрано", "error")
+        return redirect(url_for("index"))
 
-            # Показуємо інформаційне вікно зі шляхом і кількістю імпортованих подій.
-            messagebox.showinfo(
-                "Готово",
-                f"Збережено як: {output}\n\n"
-                f"Знайдено та імпортовано подій: {count}"
-            )
-        except Exception as e:
-            # У разі помилки — показуємо вікно з описом помилки.
-            messagebox.showerror("Помилка", str(e))
-    else:
-        # Якщо користувач закрив діалог без вибору — попередження.
-        messagebox.showwarning("Увага", "Файл не обрано")
+    if not file.filename.endswith((".xlsx", ".xls")):
+        flash("Підтримуються лише файли .xlsx та .xls", "error")
+        return redirect(url_for("index"))
+
+    try:
+        file_bytes = file.read()
+        wb = openpyxl.load_workbook(io.BytesIO(file_bytes))
+        ws = wb.active
+
+        events = extract_events(ws)
+
+        if not events:
+            flash("Не вдалося знайти жодних подій у файлі. Перевірте формат розкладу.", "error")
+            return redirect(url_for("index"))
+
+        output_buffer = io.BytesIO()
+        ics_content = generate_ics_string(events)
+        output_buffer.write(ics_content.encode("utf-8"))
+        output_buffer.seek(0)
+
+        output_name = file.filename.rsplit(".", 1)[0] + ".ics"
+
+        return send_file(
+            output_buffer,
+            as_attachment=True,
+            download_name=output_name,
+            mimetype="text/calendar",
+        )
+    except Exception as e:
+        flash(f"Помилка конвертації: {e}", "error")
+        return redirect(url_for("index"))
 
 
-# Головний блок програми: запускається тільки при прямому запуску app.py.
+def generate_ics_string(events):
+    lines = [
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "PRODID:-//ExcelToICS//UA//",
+        "CALSCALE:GREGORIAN",
+        "METHOD:PUBLISH",
+        "X-WR-TIMEZONE:Europe/Kyiv",
+    ]
+
+    from datetime import datetime
+    now = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+
+    for event in events:
+        from excel_to_ics import escape_ics
+        lines.extend([
+            "BEGIN:VEVENT",
+            f"UID:{event['uid']}",
+            f"DTSTAMP:{now}",
+            f"DTSTART:{event['start'].strftime('%Y%m%dT%H%M%S')}",
+            f"DTEND:{event['end'].strftime('%Y%m%dT%H%M%S')}",
+            f"SUMMARY:{escape_ics(event['summary'])}",
+            f"LOCATION:{escape_ics(event['location'])}",
+            f"DESCRIPTION:{escape_ics(event['description'])}",
+            "END:VEVENT",
+        ])
+
+    lines.append("END:VCALENDAR")
+    return "\n".join(lines)
+
+
 if __name__ == "__main__":
-    # Створюємо головне вікно додатку.
-    root = tk.Tk()
-    root.title("Конвертер розкладу в Google Calendar")   # заголовок вікна
-    root.geometry("350x100")                             # розмір вікна (ширина x висота)
-
-    # Кнопка запуску вибору файлу — при натисканні викликає upload_file().
-    upload_btn = tk.Button(
-        root, text="Завантажити Excel", command=upload_file, padx=20, pady=10
-    )
-    upload_btn.pack(expand=True)          # розміщуємо кнопку, центруючи по вікну
-
-    root.mainloop()                       # запускаємо головний цикл обробки подій GUI
+    app.run(debug=True, host="0.0.0.0", port=5000)
