@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Конвертер розкладу</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <h1>Конвертер розкладу в Google Calendar</h1>
+        <p class="subtitle">Завантажте Excel-файл з розкладом та отримайте .ics для імпорту в Google Calendar</p>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <div class="alert alert-{{ category }}">{{ message }}</div>
+            {% endfor %}
+        {% endif %}
+        {% endwith %}
+
+        <form action="/convert" method="post" enctype="multipart/form-data" class="upload-form">
+            <div class="upload-area" id="uploadArea">
+                <input type="file" name="file" id="fileInput" accept=".xlsx,.xls" hidden>
+                <div class="upload-icon">&#128202;</div>
+                <p class="upload-text">Натисніть або перетягніть Excel-файл сюди</p>
+                <p class="upload-hint">.xlsx / .xls</p>
+            </div>
+            <div class="file-name" id="fileName"></div>
+            <button type="submit" class="btn" id="submitBtn" disabled>Конвертувати</button>
+        </form>
+
+        <div class="info">
+            <h3>Як це працює:</h3>
+            <ol>
+                <li>Завантажте файл розкладу у форматі Excel (.xlsx)</li>
+                <li>Натисніть "Конвертувати"</li>
+                <li>Завантажте готовий .ics файл</li>
+                <li>Імпортуйте його в Google Calendar</li>
+            </ol>
+        </div>
+    </div>
+
+    <script>
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInput = document.getElementById('fileInput');
+        const fileName = document.getElementById('fileName');
+        const submitBtn = document.getElementById('submitBtn');
+
+        uploadArea.addEventListener('click', () => fileInput.click());
+
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragover');
+        });
+
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragover');
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragover');
+            fileInput.files = e.dataTransfer.files;
+            updateFileName();
+        });
+
+        fileInput.addEventListener('change', updateFileName);
+
+        function updateFileName() {
+            if (fileInput.files.length > 0) {
+                fileName.textContent = fileInput.files[0].name;
+                submitBtn.disabled = false;
+            } else {
+                fileName.textContent = '';
+                submitBtn.disabled = true;
+            }
+        }
+    </script>
+</body>
+</html>
